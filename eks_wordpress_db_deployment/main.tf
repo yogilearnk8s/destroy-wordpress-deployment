@@ -63,7 +63,7 @@ resource "kubernetes_persistent_volume" "wp_db_persistent_volume" {
     
   }
   spec {
-    storage_class_name = "gp3"
+    storage_class_name = "gp2"
     capacity = {
       storage = "20Gi"
     }
