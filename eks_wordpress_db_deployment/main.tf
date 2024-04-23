@@ -5,7 +5,7 @@ resource "kubernetes_namespace" "wp_namespace" {
 }
 
 resource "aws_ebs_volume" "wordpress_volume" {
-  availability_zone = "ap-south-1b"  # Specify the availability zone where the EBS volume will exist
+  availability_zone = "ap-south-1a"  # Specify the availability zone where the EBS volume will exist
   size              = 20            # Size of the volume in GiBs
   type = "gp3"
   tags = {
@@ -73,7 +73,7 @@ resource "kubernetes_persistent_volume" "wp_db_persistent_volume" {
     
   }
   spec {
-    storage_class_name = "gp3"
+    storage_class_name = "wp-storage"
     capacity = {
       storage = "20Gi"
     }
@@ -84,27 +84,28 @@ resource "kubernetes_persistent_volume" "wp_db_persistent_volume" {
         #  volume_handle = "awsElasticBlockStore"
         #}
         aws_elastic_block_store {
-           volume_id = "aws_ebs_volume.wordpress_volume.id"
+           volume_id = aws_ebs_volume.wordpress_volume.id
 
         }
 
     }
 
   }
+  depends_on = [aws_ebs_volume.wordpress_volume]
 }
 
 
 resource "kubernetes_persistent_volume_claim" "wp_db_persistent_volume_claim" {
   metadata {
     name = "wp-db-presistentclaim"
-    #namespace = "wp-namespace"
+    namespace = "wp-namespace"
     labels = {
        name = "wp-db"
        app = "wordpress_db"
     }
   }
   spec {
-    storage_class_name = "gp3"
+    storage_class_name = "wp-storage"
     access_modes = ["ReadWriteOnce"]
     resources {
       requests = {
