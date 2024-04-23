@@ -4,29 +4,32 @@ resource "kubernetes_namespace" "wp_namespace" {
   }
 }
 
-
 resource "aws_ebs_volume" "wordpress_volume" {
   availability_zone = "ap-south-1b"  # Specify the availability zone where the EBS volume will exist
   size              = 20            # Size of the volume in GiBs
+  type = "gp3"
   tags = {
     Name = "wordpress-volume"  # Optional: Assign tags to the volume
   }
 }
 
-resource "kubernetes_secret" "wp_secret" {
+resource "kubernetes_storage_class" "wp-storage" {
   metadata {
-    name = "wp-auth"
-    namespace = "wp-namespace"
+    name = "wp-storage"
+ 
+    labels = {
+       name = "wp-db"
+       app = "wordpress_db"
+    }
   }
-
-  data = {
-    username = "admin"
-    password = "P4ssw0rd"
+  storage_provisioner = "kubernetes.io/aws-ebs"
+  reclaim_policy      = "Delete"
+  parameters = {
+    type = "gp3"
   }
-
-  type = "kubernetes.io/basic-auth"
+  volume_binding_mode = "Immediate"
+  
 }
-
 
 resource "kubernetes_config_map" "env_values" {
   metadata {
@@ -46,24 +49,31 @@ resource "kubernetes_secret" "wordpress_db_secret" {
     metadata {
         name      = "wordpress-db-password"
         namespace = "wp-namespace"
+          labels = {
+       name = "wp-db"
+       app = "wordpress_db"
     }
-
+    }
+ 
     data = {
-        WORDPRESS_DB_PASSWORD     = "dbsecretvalue"
+        username = "wordpress-db-password"
+        wordpress-pwd   = "dbsecretvalue"
     }
-    
+       type = "kubernetes.io/basic-auth"
 }
 
 resource "kubernetes_persistent_volume" "wp_db_persistent_volume" {
   metadata {
     name = "mysql-pv"
+   
     labels = {
        name = "wp-db"
+       app = "wordpress_db"
     }
     
   }
   spec {
-    storage_class_name = "gp2"
+    storage_class_name = "gp3"
     capacity = {
       storage = "20Gi"
     }
@@ -87,6 +97,11 @@ resource "kubernetes_persistent_volume" "wp_db_persistent_volume" {
 resource "kubernetes_persistent_volume_claim" "wp_db_persistent_volume_claim" {
   metadata {
     name = "wp-db-presistentclaim"
+    #namespace = "wp-namespace"
+    labels = {
+       name = "wp-db"
+       app = "wordpress_db"
+    }
   }
   spec {
     storage_class_name = "gp3"
@@ -99,9 +114,33 @@ resource "kubernetes_persistent_volume_claim" "wp_db_persistent_volume_claim" {
     selector {
       match_labels = {
          name = "wp-db"
+         app = "wordpress_db"
       }  
     }
     volume_name = "${kubernetes_persistent_volume.wp_db_persistent_volume.metadata.0.name}"
+  }
+}
+
+resource "kubernetes_service" "wp-mysql" {
+  metadata {
+    name = "wordpress-mysql"
+        namespace = "wp-namespace"
+    labels = {
+       name = "wp-db"
+       app = "wordpress_db"
+    }
+  }
+  spec {
+    selector = {
+      app = "wordpress_db"
+    }
+    #session_affinity = "ClientIP"
+    port {
+      port        = 3306
+      #target_port = 80
+    }
+
+    #type = "LoadBalancer"
   }
 }
 
@@ -135,42 +174,33 @@ resource "kubernetes_deployment" "wordpress_db" {
             name = "mysql"
           }
                 env {
-               name = "WORDPRESS_DB_NAME"
+               name = "MYSQL_DATABASE"
               value = "wordpressdb"
             }
           env {
-           name = "WORDPRESS_DB_USER"
+           name = "MYSQL_USER"
            value = "wordpress-db-user"
             }
            env {
-           name = "wordpress-db-password"
+           name = "MYSQL_PASSWORD"
            value_from {
               secret_key_ref {
                 name = kubernetes_secret.wordpress_db_secret.metadata[0].name
-                key = "WORDPRESS_DB_PASSWORD"
+                key = "wordpress-pwd"
               } 
            }
             }
 
            env {
                name = "WORDPRESS_DB_HOST"
-              value = "wordpress-db-host"
+              value = "wordpress-mysql"
             }
 
           volume_mount {
             name = "wordpress-persistent-storage"
             mount_path =  "/var/lib/mysql"
           }
-            resources {
-            limits = {
-              cpu    = "500m"
-              memory = "512Mi"
-            }
-            requests = {
-              cpu    = "250m"
-              memory = "50Mi"
-            }
-          }
+
         }
         volume{
           name = "wordpress-persistent-storage"
@@ -183,5 +213,5 @@ resource "kubernetes_deployment" "wordpress_db" {
       }
     }
   }
-   depends_on = [ kubernetes_persistent_volume.wp_db_persistent_volume]
+   depends_on = [kubernetes_persistent_volume_claim.wp_db_persistent_volume_claim]
 }
