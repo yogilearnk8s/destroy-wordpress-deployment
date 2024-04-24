@@ -5,8 +5,8 @@ resource "kubernetes_namespace" "wp_namespace" {
 }
 
 resource "aws_ebs_volume" "wordpress_volume" {
-  availability_zone = "ap-south-1a"  # Specify the availability zone where the EBS volume will exist
-  size              = 20            # Size of the volume in GiBs
+  availability_zone = "ap-south-1b"  # Specify the availability zone where the EBS volume will exist
+  size              = 45            # Size of the volume in GiBs
   type = "gp3"
   tags = {
     Name = "wordpress-volume"  # Optional: Assign tags to the volume
@@ -47,7 +47,7 @@ resource "kubernetes_config_map" "env_values" {
 
 resource "kubernetes_secret" "wordpress_db_secret" {
     metadata {
-        name      = "wordpress-db-password"
+        name      = "wordpress-db-pwd"
         namespace = "wp-namespace"
           labels = {
        name = "wp-db"
@@ -56,7 +56,7 @@ resource "kubernetes_secret" "wordpress_db_secret" {
     }
  
     data = {
-        username = "wordpress-db-password"
+        username = "wordpress-db"
         wordpress-pwd   = "dbsecretvalue"
     }
        type = "kubernetes.io/basic-auth"
@@ -168,7 +168,7 @@ resource "kubernetes_deployment" "wordpress_db" {
       }
       spec {
         container {
-          image = "mysql:8.0"
+          image = "mysql:8.3"
           name  = "mysql"
           port {
             container_port = 3306
@@ -184,6 +184,15 @@ resource "kubernetes_deployment" "wordpress_db" {
             }
            env {
            name = "MYSQL_PASSWORD"
+           value_from {
+              secret_key_ref {
+                name = kubernetes_secret.wordpress_db_secret.metadata[0].name
+                key = "wordpress-pwd"
+              } 
+           }
+            }
+            env {
+           name = "MYSQL_ROOT_PASSWORD"
            value_from {
               secret_key_ref {
                 name = kubernetes_secret.wordpress_db_secret.metadata[0].name
